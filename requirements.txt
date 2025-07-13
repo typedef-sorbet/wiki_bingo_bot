@@ -1,0 +1,5 @@
+discord
+requests
+logging
+bs4
+datetime
