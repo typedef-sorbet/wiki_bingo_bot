@@ -39,7 +39,7 @@ DB_NAME = "wiki.db"
 # Yes, this pattern fucking sucks, I know
 def renderMessage(data):
     # Render the data struct as a text message depending on the contents of the data.
-    res = ""
+    res = "\n"
     match data:
         case {"type": "list_presets", "presets": list(presets)}:
             for preset_name, description in presets:
@@ -54,7 +54,7 @@ def renderMessage(data):
                 res = f"A preset with the name '{preset_name}' either doesn't exist, or doesn't have any categories/articles listed."
             else:
                 res = "\n".join(
-                    f'{entry["entry_name"]} ({entry["entry_type"]})'
+                    f'{entry["entry_name"]} _({entry["entry_type"]})_'
                     for entry in contents
                 )
 
@@ -63,6 +63,9 @@ def renderMessage(data):
 
         # General purpose confirmation
         case True:
+            res = "Done."
+
+        case (True, ""):
             res = "Done."
 
         # General purpose error message
@@ -110,56 +113,31 @@ async def _wiki(ctx, *args):
         case ["preset"] | ["presets"]:
             await list_presets(ctx)
 
-        case ["preset", "create", preset_name, *categories]:
-            await create_preset(ctx, preset_name, categories)
+        case ["preset", "create", preset_name, *entries]:
+            await create_preset(ctx, preset_name, entries)
 
         case ["preset", "delete", preset_name]:
-            if not preset_exists(preset_name):
-                await sendMessageFromData(ctx, WikiError.PRESET_NOT_EXISTS_ERROR)
-            else:
-                await delete_preset(ctx, preset_name)
+            await delete_preset(ctx, preset_name)
 
-        case ["preset", "update", preset_name, *categories]:
-            if not preset_exists(preset_name):
-                await sendMessageFromData(ctx, WikiError.PRESET_NOT_EXISTS_ERROR)
-            else:
-                await update_preset(ctx, preset_name, categories)
+        case ["preset", "update", preset_name, *entries]:
+            await update_preset(ctx, preset_name, entries)
 
-        case ["preset", "append", preset_name, *categories]:
-            if not preset_exists(preset_name):
-                await sendMessageFromData(ctx, WikiError.PRESET_NOT_EXISTS_ERROR)
-            else:
-                await append_to_preset(ctx, preset_name, categories)
+        case ["preset", "append", preset_name, *entries]:
+            await append_to_preset(ctx, preset_name, entries)
 
-        case ["preset", "remove", preset_name, *categories]:
-            if not preset_exists(preset_name):
-                await sendMessageFromData(ctx, WikiError.PRESET_NOT_EXISTS_ERROR)
-            else:
-                await remove_from_preset(ctx, preset_name, categories)
+        case ["preset", "remove", preset_name, *entries]:
+            await remove_from_preset(ctx, preset_name, entries)
 
         case ["preset", preset_name]:
-            if not preset_exists(preset_name):
-                await sendMessageFromData(ctx, WikiError.PRESET_NOT_EXISTS_ERROR)
-            else:
-                await list_preset_contents(ctx, preset_name)
+            await list_preset_contents(ctx, preset_name)
 
         # Game Management
         case ["start", game_type, preset_name]:
-            if not preset_exists(preset_name):
-                await sendMessageFromData(ctx, WikiError.PRESET_NOT_EXISTS_ERROR)
-            else:
-                await start_game(ctx, game_type, preset_name)
+            await start_game(ctx, game_type, preset_name)
 
 
 async def list_presets(ctx):
-    conn = sql.connect(DB_NAME)
-
-    with conn:
-        preset_list = list(conn.execute("SELECT preset_name, description FROM presets"))
-
-    conn.close()
-
-    data = {"type": "list_presets", "presets": preset_list}
+    data = {"type": "list_presets", "presets": db.presets()}
 
     await sendMessageFromData(ctx, data)
 
@@ -174,92 +152,24 @@ async def list_preset_contents(ctx, preset_name):
     await sendMessageFromData(ctx, data)
 
 
-async def create_preset(ctx, preset_name, categories):
-    conn = sql.connect(DB_NAME)
-
-    with conn:
-        categories_formatted = ",".join(categories)
-
-        conn.execute(
-            "INSERT INTO presets(preset_name, contents) VALUES(?, ?)",
-            (preset_name, categories_formatted),
-        )
-
-    conn.close()
-
-    await sendMessageFromData(ctx, True)
+async def create_preset(ctx, preset_name, entries):
+    await sendMessageFromData(ctx, db.create_preset(preset_name, entries))
 
 
 async def delete_preset(ctx, preset_name):
-    conn = sql.connect(DB_NAME)
-
-    with conn:
-        # TODO grab a success value from this.
-        conn.execute("DELETE FROM presets WHERE preset_name = ?", (preset_name,))
-
-    conn.close()
-
-    await sendMessageFromData(ctx, True)
+    await sendMessageFromData(ctx, db.delete_preset(preset_name))
 
 
-async def update_preset(ctx, preset_name, categories):
-    conn = sql.connect(DB_NAME)
-
-    with conn:
-        categories_formatted = ",".join(categories)
-        conn.execute(
-            "UPDATE presets SET contents = ? WHERE preset_name = ?",
-            (categories_formatted, preset_name),
-        )
-
-    conn.close()
-
-    await sendMessageFromData(ctx, True)
+async def update_preset(ctx, preset_name, entries):
+    await sendMessageFromData(ctx, db.update_preset(preset_name, entries))
 
 
-async def append_to_preset(ctx, preset_name, categories):
-    conn = sql.connect(DB_NAME)
-
-    with conn:
-        existing_contents = list(
-            str(
-                conn.execute(
-                    "SELECT contents FROM presets WHERE preset_name = ?", (preset_name,)
-                )
-            ).split(",")
-        )
-        categories_formatted = ",".join(existing_contents + categories)
-        conn.execute(
-            "UPDATE presets SET contents = ? WHERE preset_name = ?",
-            (categories_formatted, preset_name),
-        )
-
-    conn.close()
-
-    await sendMessageFromData(ctx, True)
+async def append_to_preset(ctx, preset_name, entries):
+    await sendMessageFromData(ctx, db.append_to_preset(preset_name, entries))
 
 
-async def remove_from_preset(ctx, preset_name, categories):
-    conn = sql.connect(DB_NAME)
-
-    with conn:
-        existing_contents = set(
-            str(
-                conn.execute(
-                    "SELECT contents FROM presets WHERE preset_name = ?", (preset_name,)
-                )
-            ).split(",")
-        )
-        remaining_contents = existing_contents.difference(categories)
-        categories_formatted = ",".join(remaining_contents)
-        conn.execute(
-            "UPDATE presets SET contents = ? WHERE preset_name = ?",
-            (categories_formatted, preset_name),
-        )
-
-    conn.close()
-
-    await sendMessageFromData(ctx, True)
+async def remove_from_preset(ctx, preset_name, entries):
+    await sendMessageFromData(ctx, db.remove_from_preset(preset_name, entries))
 
 
 async def start_game(ctx, game_type, preset_name):

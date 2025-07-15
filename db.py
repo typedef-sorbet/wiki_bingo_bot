@@ -51,7 +51,7 @@ def create_entry(entry_name: str, entry_type: EntryType) -> bool:
 
 
 def create_entries(
-    entry_list: List[Dict[str, str]] | List[Tuple(str, str)],
+    entry_list: List[Dict[str, str]] | List[Tuple[str, str]],
 ) -> List[bool]:
     if len(entry_list) > 0:
         if isinstance(entry_list[0], dict):
@@ -62,16 +62,16 @@ def create_entries(
         return []
 
 
-def create_preset(preset_name: str, entries: List[str]) -> bool:
+def create_preset(preset_name: str, entries: List[str]) -> Tuple[bool, str]:
     funcname = frame().f_code.co_name
 
     if len(entries) == 0:
         print(f"{funcname}: empty entries list")
-        return False
+        return (False, "Entry list was empty.")
 
     if preset_exists(preset_name):
         print(f"{funcname}: preset {preset_name} already exists")
-        return False
+        return (False, "A preset by the same name already exists.")
 
     conn = sql.connect(DB_FILE)
 
@@ -84,7 +84,10 @@ def create_preset(preset_name: str, entries: List[str]) -> bool:
         print(
             f"{funcname}: The following entries were not found: {', '.join(invalid_entries)}"
         )
-        return False
+        return (
+            False,
+            f"The following entries were not found: {', '.join(invalid_entries)}",
+        )
 
     entries_json = dumps(entries)
 
@@ -96,19 +99,19 @@ def create_preset(preset_name: str, entries: List[str]) -> bool:
 
     conn.close()
 
-    return True
+    return (True, "")
 
 
-def update_preset(preset_name: str, entries: List[str]) -> bool:
+def update_preset(preset_name: str, entries: List[str]) -> Tuple[bool, str]:
     funcname = frame().f_code.co_name
 
     if len(entries) == 0:
         print(f"{funcname}: empty entries list")
-        return False
+        return (False, "Entry list was empty.")
 
     if not preset_exists(preset_name):
         print(f"{funcname}: preset {preset_name} doesn't exist")
-        return False
+        return (False, f'No preset found with the name "{preset_name}".')
 
     conn = sql.connect(DB_FILE)
 
@@ -121,7 +124,10 @@ def update_preset(preset_name: str, entries: List[str]) -> bool:
         print(
             f"{funcname}: The following entries were not found: {', '.join(invalid_entries)}"
         )
-        return False
+        return (
+            False,
+            f"The following entries were not found: {', '.join(invalid_entries)}",
+        )
 
     entries_json = dumps(entries)
 
@@ -133,17 +139,19 @@ def update_preset(preset_name: str, entries: List[str]) -> bool:
 
     conn.close()
 
+    return (True, "")
 
-def append_to_preset(preset_name: str, entries: List[str]) -> bool:
+
+def append_to_preset(preset_name: str, entries: List[str]) -> Tuple[bool, str]:
     funcname = frame().f_code.co_name
 
     if len(entries) == 0:
         print(f"{funcname}: empty entries list")
-        return False
+        return (False, "Entry list was empty.")
 
     if not preset_exists(preset_name):
         print(f"{funcname}: preset {preset_name} doesn't exist")
-        return False
+        return (False, f'No preset found with the name "{preset_name}".')
 
     conn = sql.connect(DB_FILE)
 
@@ -156,7 +164,10 @@ def append_to_preset(preset_name: str, entries: List[str]) -> bool:
         print(
             f"{funcname}: The following entries were not found: {', '.join(invalid_entries)}"
         )
-        return False
+        return (
+            False,
+            f"The following entries were not found: {', '.join(invalid_entries)}",
+        )
 
     with conn:
         existing_entries = set(
@@ -179,19 +190,15 @@ def append_to_preset(preset_name: str, entries: List[str]) -> bool:
 
     conn.close()
 
-    return True
+    return (True, "")
 
 
-def delete_preset(preset_name: str) -> bool:
+def delete_preset(preset_name: str) -> Tuple[bool, str]:
     funcname = frame().f_code.co_name
-
-    if len(entries) == 0:
-        print(f"{funcname}: empty entries list")
-        return False
 
     if not preset_exists(preset_name):
         print(f"{funcname}: preset {preset_name} doesn't exist")
-        return False
+        return (False, f'No preset found with the name "{preset_name}".')
 
     conn = sql.connect(DB_FILE)
 
@@ -204,7 +211,7 @@ def delete_preset(preset_name: str) -> bool:
 
     conn.close()
 
-    return True
+    return (True, "")
 
 
 def remove_from_preset(preset_name: str, entries: List[str]) -> bool:
@@ -212,11 +219,11 @@ def remove_from_preset(preset_name: str, entries: List[str]) -> bool:
 
     if len(entries) == 0:
         print(f"{funcname}: empty entries list")
-        return False
+        return (False, "Entry list was empty.")
 
     if not preset_exists(preset_name):
         print(f"{funcname}: preset {preset_name} doesn't exist")
-        return False
+        return (False, f'No preset found with the name "{preset_name}".')
 
     conn = sql.connect(DB_FILE)
 
@@ -241,7 +248,7 @@ def remove_from_preset(preset_name: str, entries: List[str]) -> bool:
 
     conn.close()
 
-    return True
+    return (True, "")
 
 
 def preset_contents(preset_name: str) -> List[Dict[str, str]]:
@@ -270,6 +277,13 @@ def preset_contents(preset_name: str) -> List[Dict[str, str]]:
     conn.close()
 
     return entries_joined
+
+
+def presets() -> List[Tuple[str, str]]:
+    conn = sql.connect(DB_FILE)
+
+    with conn:
+        return list(conn.execute("SELECT preset_name, description FROM Presets"))
 
 
 def initialize_test_db():
