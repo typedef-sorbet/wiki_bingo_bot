@@ -6,6 +6,8 @@ from enum import Enum
 
 from sys import _getframe as frame
 
+from typing import List, Dict
+
 DB_FILE = "wiki.db"
 
 
@@ -14,11 +16,13 @@ class EntryType(Enum):
     ARTICLE = "article"
 
 
-class create_entry(entry_name: str, entry_type: EntryType) -> bool:
+def create_entry(entry_name: str, entry_type: EntryType) -> bool:
     try:
         conn = sql.connect(DB_FILE)
     except:
-        print(f"{frame().f_code.co_name}: Unable to open connection to database file {DB_FILE}")
+        print(
+            f"{frame().f_code.co_name}: Unable to open connection to database file {DB_FILE}"
+        )
         return False
 
     res = True
@@ -28,7 +32,7 @@ class create_entry(entry_name: str, entry_type: EntryType) -> bool:
             conn.execute(
                 "INSERT OR IGNORE INTO PresetEntries(entry_name, entry_type) "
                 "VALUES(?, ?)",
-                (entry_name, entry_type)
+                (entry_name, entry_type),
             )
         except:
             print(f"{frame().f_code.co_name}: Unable to insert into PresetEntries")
@@ -38,8 +42,10 @@ class create_entry(entry_name: str, entry_type: EntryType) -> bool:
 
     return res
 
-class create_entries(entry_list: List[Dict[str, str]]) -> List[bool]:
+
+def create_entries(entry_list: List[Dict[str, str]]) -> List[bool]:
     return [create_entry(d["entry_name"], d["entry_type"]) for d in entry_list]
+
 
 def initialize_test_db():
     db_path = Path(DB_FILE)
@@ -66,11 +72,12 @@ def initialize_test_db():
         conn.execute(
             "CREATE TABLE IF NOT EXISTS PresetEntries("
             "entry_name TEXT PRIMARY_KEY, "
-            "entry_type TEXT CHECK( entry_type in ('category', 'article') ), "
+            "entry_type TEXT CHECK( entry_type in ('category', 'article') )"
+            ")"
         )
 
         # Load the PresetEntries table with some data
-        preset_entries_data = {
+        preset_entries_data = [
             {"entry_name": "The Game Awards winners", "entry_type": "category"},
             {"entry_name": "Indie games", "entry_type": "category"},
             {
@@ -79,7 +86,7 @@ def initialize_test_db():
             },
             {"entry_name": "Bullet hell video games", "entry_type": "category"},
             {"entry_name": "Platform fighters", "entry_type": "category"},
-        }
+        ]
 
         conn.executemany(
             "INSERT OR IGNORE INTO PresetEntries(entry_name, entry_type) "
@@ -88,7 +95,7 @@ def initialize_test_db():
         )
 
         # Load the Presets table with subsets of the above entries
-        presets_data = {
+        presets_data = [
             {
                 "preset_name": "GameAwardsWinners",
                 "entries": dumps(["The Game Awards winners"]),
@@ -112,7 +119,7 @@ def initialize_test_db():
                 ),
                 "description": "A little bit of everything.",
             },
-        }
+        ]
 
         conn.executemany(
             "INSERT OR IGNORE INTO Presets(preset_name, entries, description) "
