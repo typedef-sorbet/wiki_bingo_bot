@@ -16,7 +16,11 @@ from enum import Enum
 
 from json import dumps
 
+from typing import List, Dict, Tuple
+
 import db
+import wiki
+import random
 
 
 class WikiError(Enum):
@@ -203,8 +207,8 @@ async def start_game(ctx, game_type, preset_name):
 
     print(f"Found csrfmiddlewaretoken {csrf_token}")
 
-    preset_json = preset_as_json_string(preset_name)
-    print(f'Preset JSON: "{preset_json}"')
+    preset_json = dumps(generate_board_for_preset(preset_name))
+    print(f'Generated board: "{preset_json}"')
 
     post_headers = {
         "Content-Type": "application/x-www-form-urlencoded",
@@ -254,6 +258,23 @@ async def start_game(ctx, game_type, preset_name):
     room_code = resp.headers["Location"]
 
     await sendMessageFromData(ctx, {"type": "start_game", "room_code": room_code})
+
+
+def generate_board_for_preset(
+    preset_name: str, cat_depth: int = 500
+) -> List[Dict[str, str]]:
+    pages = []
+
+    preset_entries = db.preset_contents(preset_name)
+
+    for entry in preset_entries:
+        if entry["entry_type"] == db.EntryType.ARTICLE:
+            pages.append(entry["entry_name"])
+        else:
+            pages.extend(wiki.category_contents(entry["entry_name"]))
+
+    # Pages fully loaded, randomly select 25 of them.
+    return [{"name": page_name} for page_name in random.sample(pages, 25)]
 
 
 # Database utility functions
