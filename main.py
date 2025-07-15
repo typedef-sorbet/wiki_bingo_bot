@@ -16,28 +16,28 @@ from enum import Enum
 
 from json import dumps
 
+
 class WikiError(Enum):
     NO_ERROR = 0
     PRESET_NOT_EXISTS_ERROR = 1
 
 
 logging.basicConfig(level=logging.INFO)
-bot = commands.Bot(
-    command_prefix="!", 
-    intents = discord.Intents(34305)
-)
+bot = commands.Bot(command_prefix="!", intents=discord.Intents(34305))
 
 # Trick the site into thinking we're a browser
 headers = {
-    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10_1) AppleWebKit/537.36 \
-    (KHTML, like Gecko) Chrome/39.0.2171.95 Safari/537.36'
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10_1) AppleWebKit/537.36 \
+    (KHTML, like Gecko) Chrome/39.0.2171.95 Safari/537.36"
 }
 
 DB_NAME = "wiki.db"
 
+
 # Util functions here
 def urlFormat(s):
     return urllib.parse.quote(s.encode("utf-8"))
+
 
 # Yes, this pattern fucking sucks, I know
 def renderMessage(data):
@@ -45,10 +45,14 @@ def renderMessage(data):
     res = ""
     match data:
         case {"type": "list_presets", "presets": list(presets)}:
-            for (preset_name, description) in presets:
+            for preset_name, description in presets:
                 res += f"**{preset_name}** - {description}\n"
 
-        case {"type": "list_preset_contents", "preset_name": str(preset_name), "categories": list(categories)}:
+        case {
+            "type": "list_preset_contents",
+            "preset_name": str(preset_name),
+            "categories": list(categories),
+        }:
             if len(categories) == 0:
                 res = f"A preset with the name '{preset_name}' either doesn't exist, or doesn't have any categories/articles listed."
             else:
@@ -75,6 +79,7 @@ def renderMessage(data):
 
     return res
 
+
 async def sendMessageFromData(ctx, data):
     # Render the data contained in the data struct, and send it
     try:
@@ -90,11 +95,13 @@ async def sendMessageFromData(ctx, data):
         print(f"Invalid message argument: {invalidErr}")
         return None
 
+
 # Bot commands go here...
 @bot.event
 async def on_ready():
     print(f"Logged in as {bot.user} (ID: {bot.user.id})")
     print("-----")
+
 
 @bot.command(name="wiki")
 async def _wiki(ctx, *args):
@@ -151,11 +158,8 @@ async def list_presets(ctx):
         preset_list = list(conn.execute("SELECT preset_name, description FROM presets"))
 
     conn.close()
-    
-    data = {
-        "type": "list_presets",
-        "presets": preset_list
-    }
+
+    data = {"type": "list_presets", "presets": preset_list}
 
     await sendMessageFromData(ctx, data)
 
@@ -164,17 +168,24 @@ async def list_preset_contents(ctx, preset_name):
     conn = sql.connect(DB_NAME)
 
     with conn:
-        category_string = str(list(conn.execute("SELECT contents FROM presets WHERE preset_name = ?", (preset_name,)))[0][0])
+        category_string = str(
+            list(
+                conn.execute(
+                    "SELECT contents FROM presets WHERE preset_name = ?", (preset_name,)
+                )
+            )[0][0]
+        )
 
     conn.close()
 
     data = {
         "type": "list_preset_contents",
         "preset_name": preset_name,
-        "categories": list(category_string.split(","))
+        "categories": list(category_string.split(",")),
     }
 
     await sendMessageFromData(ctx, data)
+
 
 async def create_preset(ctx, preset_name, categories):
     conn = sql.connect(DB_NAME)
@@ -182,7 +193,10 @@ async def create_preset(ctx, preset_name, categories):
     with conn:
         categories_formatted = ",".join(categories)
 
-        conn.execute("INSERT INTO presets(preset_name, contents) VALUES(?, ?)", (preset_name, categories_formatted))
+        conn.execute(
+            "INSERT INTO presets(preset_name, contents) VALUES(?, ?)",
+            (preset_name, categories_formatted),
+        )
 
     conn.close()
 
@@ -200,45 +214,70 @@ async def delete_preset(ctx, preset_name):
 
     await sendMessageFromData(ctx, True)
 
+
 async def update_preset(ctx, preset_name, categories):
     conn = sql.connect(DB_NAME)
 
     with conn:
         categories_formatted = ",".join(categories)
-        conn.execute("UPDATE presets SET contents = ? WHERE preset_name = ?", (categories_formatted, preset_name))
+        conn.execute(
+            "UPDATE presets SET contents = ? WHERE preset_name = ?",
+            (categories_formatted, preset_name),
+        )
 
     conn.close()
 
     await sendMessageFromData(ctx, True)
+
 
 async def append_to_preset(ctx, preset_name, categories):
     conn = sql.connect(DB_NAME)
 
     with conn:
-        existing_contents = list(str(conn.execute("SELECT contents FROM presets WHERE preset_name = ?", (preset_name,))).split(","))
+        existing_contents = list(
+            str(
+                conn.execute(
+                    "SELECT contents FROM presets WHERE preset_name = ?", (preset_name,)
+                )
+            ).split(",")
+        )
         categories_formatted = ",".join(existing_contents + categories)
-        conn.execute("UPDATE presets SET contents = ? WHERE preset_name = ?", (categories_formatted, preset_name))
+        conn.execute(
+            "UPDATE presets SET contents = ? WHERE preset_name = ?",
+            (categories_formatted, preset_name),
+        )
 
     conn.close()
 
     await sendMessageFromData(ctx, True)
+
 
 async def remove_from_preset(ctx, preset_name, categories):
     conn = sql.connect(DB_NAME)
 
     with conn:
-        existing_contents = set(str(conn.execute("SELECT contents FROM presets WHERE preset_name = ?", (preset_name,))).split(","))
+        existing_contents = set(
+            str(
+                conn.execute(
+                    "SELECT contents FROM presets WHERE preset_name = ?", (preset_name,)
+                )
+            ).split(",")
+        )
         remaining_contents = existing_contents.difference(categories)
         categories_formatted = ",".join(remaining_contents)
-        conn.execute("UPDATE presets SET contents = ? WHERE preset_name = ?", (categories_formatted, preset_name))
-        
+        conn.execute(
+            "UPDATE presets SET contents = ? WHERE preset_name = ?",
+            (categories_formatted, preset_name),
+        )
+
     conn.close()
 
     await sendMessageFromData(ctx, True)
 
+
 async def start_game(ctx, game_type, preset_name):
     # Here's where the rubber meets the road.
-    # Start a session, then issue a GET request to the main bingosync site 
+    # Start a session, then issue a GET request to the main bingosync site
     # to get the CSRF token.
 
     session = requests.Session()
@@ -246,21 +285,29 @@ async def start_game(ctx, game_type, preset_name):
     resp = session.get("https://bingosync.com/")
 
     if resp.status_code != 200:
-        await sendMessageFromData(ctx, (False, f"GET request to bingosync.com gave status code {resp.status_code}"))
+        await sendMessageFromData(
+            ctx,
+            (
+                False,
+                f"GET request to bingosync.com gave status code {resp.status_code}",
+            ),
+        )
         return
 
     # The csrf middleware token is embedded in the response HTML, grab it.
-    soup = BeautifulSoup(resp.content, 'html.parser')
+    soup = BeautifulSoup(resp.content, "html.parser")
     csrf_token = soup.find("input", {"name": "csrfmiddlewaretoken"}).get("value", "")
 
     if len(csrf_token) == 0:
-        await sendMessageFromData(ctx, (False, "Unable to find CSRF middleware token in response HTML."))
+        await sendMessageFromData(
+            ctx, (False, "Unable to find CSRF middleware token in response HTML.")
+        )
         return
 
     print(f"Found csrfmiddlewaretoken {csrf_token}")
 
     preset_json = preset_as_json_string(preset_name)
-    print(f"Preset JSON: \"{preset_json}\"")
+    print(f'Preset JSON: "{preset_json}"')
 
     post_headers = {
         "Content-Type": "application/x-www-form-urlencoded",
@@ -268,7 +315,7 @@ async def start_game(ctx, game_type, preset_name):
         "Accept": "text/html,application/xhtml+xml,application/xml",
         "Accept-Encoding": "gzip, deflate, br, zstd",
         "Accept-Language": "en-US,en;q=0.5",
-        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0"
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0",
     }
 
     post_params = {
@@ -276,18 +323,29 @@ async def start_game(ctx, game_type, preset_name):
         "passphrase": "youllneverguess",
         "nickname": "wikibot",
         "game_type": "18",  # custom
-        "variant_type": "172", # randomized
+        "variant_type": "172",  # randomized
         "custom_json": preset_json,
-        "lockout_mode": "2",    # TODO: make this configurable
+        "lockout_mode": "2",  # TODO: make this configurable
         "seed": "",  # TODO: make this configurable
         "hide_card": "on",
-        "csrfmiddlewaretoken": csrf_token
+        "csrfmiddlewaretoken": csrf_token,
     }
 
-    resp = session.post("https://bingosync.com/", data=post_params, headers=post_headers, allow_redirects=False)
+    resp = session.post(
+        "https://bingosync.com/",
+        data=post_params,
+        headers=post_headers,
+        allow_redirects=False,
+    )
 
-    if "Location" not in resp.headers: # File Found
-        await sendMessageFromData(ctx, (False, f"Got unexpected status code from POST request {resp.status_code} with no Location header"))
+    if "Location" not in resp.headers:  # File Found
+        await sendMessageFromData(
+            ctx,
+            (
+                False,
+                f"Got unexpected status code from POST request {resp.status_code} with no Location header",
+            ),
+        )
         print(f"POST request status code: {resp.status_code}")
         print(f"POST request headers: {resp.headers}")
         # print(f"POST request content: {resp.content}")
@@ -300,25 +358,39 @@ async def start_game(ctx, game_type, preset_name):
 
     await sendMessageFromData(ctx, {"type": "start_game", "room_code": room_code})
 
+
 # Database utility functions
+
 
 def preset_exists(preset_name):
     conn = sql.connect(DB_NAME)
 
     with conn:
-        rows = list(conn.execute("SELECT * FROM presets WHERE preset_name = ?", (preset_name,)))
+        rows = list(
+            conn.execute("SELECT * FROM presets WHERE preset_name = ?", (preset_name,))
+        )
 
     conn.close()
 
     return len(rows) > 0
 
+
 def preset_as_json_string(preset_name):
     conn = sql.connect(DB_NAME)
 
     with conn:
-        contents = str(list(conn.execute("SELECT contents FROM presets WHERE preset_name = ?", (preset_name,)))[0][0])
+        contents = str(
+            list(
+                conn.execute(
+                    "SELECT contents FROM presets WHERE preset_name = ?", (preset_name,)
+                )
+            )[0][0]
+        )
 
-    return dumps([{"name": article} for article in contents.split(",")], separators=(',', ':'))
+    return dumps(
+        [{"name": article} for article in contents.split(",")], separators=(",", ":")
+    )
+
 
 if __name__ == "__main__":
     bot.run(config.token())
