@@ -4,9 +4,22 @@ import urllib
 import requests
 import logging
 
+import sqlite3 as sql
+
 from discord.ext import commands, tasks
 from bs4 import BeautifulSoup as Soup
 from datetime import datetime
+
+from bs4 import BeautifulSoup
+
+from enum import Enum
+
+from json import dumps
+
+class WikiError(Enum):
+    NO_ERROR = 0
+    PRESET_NOT_EXISTS_ERROR = 1
+
 
 logging.basicConfig(level=logging.INFO)
 bot = commands.Bot(
@@ -20,30 +33,53 @@ headers = {
     (KHTML, like Gecko) Chrome/39.0.2171.95 Safari/537.36'
 }
 
+DB_NAME = "wiki.db"
+
 # Util functions here
 def urlFormat(s):
     return urllib.parse.quote(s.encode("utf-8"))
 
+# Yes, this pattern fucking sucks, I know
 def renderMessage(data):
     # Render the data struct as a text message depending on the contents of the data.
+    res = ""
     match data:
+        case {"type": "list_presets", "presets": list(presets)}:
+            for (preset_name, description) in presets:
+                res += f"**{preset_name}** - {description}\n"
+
+        case {"type": "list_preset_contents", "preset_name": str(preset_name), "categories": list(categories)}:
+            if len(categories) == 0:
+                res = f"A preset with the name '{preset_name}' either doesn't exist, or doesn't have any categories/articles listed."
+            else:
+                res = "\n".join(categories)
+
+        case {"type": "start_game", "room_code": room_code}:
+            res += f"BingoSync game created: https://bingosync.com{room_code}"
+
+        # General purpose confirmation
+        case True:
+            res = "Done."
+
+        # General purpose error message
+        case (False, reason):
+            res = reason
+
+        case WikiError.PRESET_NOT_EXISTS_ERROR:
+            res = "Given preset does not exist. Use `!wiki presets` to see a list of registered presets."
+
         case _:
             print(f"Unknown data type: categories {data['Categories']}")
             print(data)
+            res = "Unknown data struct, check logs."
+
+    return res
 
 async def sendMessageFromData(ctx, data):
     # Render the data contained in the data struct, and send it
     try:
         await ctx.send(renderMessage(data))
 
-        if "Images" in data:
-            for idx, img in enumerate(data["Images"]):
-                if "Locations" in data and idx >= len(data["Locations"]):
-                    break
-                else:
-                    embed = discord.Embed(description=data["Locations"][idx])
-                    embed.set_image(url=img)
-                    await ctx.send(embed=embed)
     except discord.HTTPException as httpErr:
         print(f"Failed to send message: {httpErr}")
         return None
@@ -71,48 +107,218 @@ async def _wiki(ctx, *args):
             await create_preset(ctx, preset_name, categories)
 
         case ["preset", "delete", preset_name]:
-            await delete_preset(ctx, preset_name)
+            if not preset_exists(preset_name):
+                await sendMessageFromData(ctx, WikiError.PRESET_NOT_EXISTS_ERROR)
+            else:
+                await delete_preset(ctx, preset_name)
 
         case ["preset", "update", preset_name, *categories]:
-            await update_preset(ctx, preset_name, categories)
+            if not preset_exists(preset_name):
+                await sendMessageFromData(ctx, WikiError.PRESET_NOT_EXISTS_ERROR)
+            else:
+                await update_preset(ctx, preset_name, categories)
 
         case ["preset", "append", preset_name, *categories]:
-            await append_to_preset(ctx, preset_name, categories)
+            if not preset_exists(preset_name):
+                await sendMessageFromData(ctx, WikiError.PRESET_NOT_EXISTS_ERROR)
+            else:
+                await append_to_preset(ctx, preset_name, categories)
 
         case ["preset", "remove", preset_name, *categories]:
-            await remove_from_preset(ctx, preset_name, categories)
+            if not preset_exists(preset_name):
+                await sendMessageFromData(ctx, WikiError.PRESET_NOT_EXISTS_ERROR)
+            else:
+                await remove_from_preset(ctx, preset_name, categories)
 
         case ["preset", preset_name]:
-            await list_preset_contents(ctx, preset_name)
+            if not preset_exists(preset_name):
+                await sendMessageFromData(ctx, WikiError.PRESET_NOT_EXISTS_ERROR)
+            else:
+                await list_preset_contents(ctx, preset_name)
 
         # Game Management
         case ["start", game_type, preset_name]:
-            await start_game(ctx, game_type, preset_name)
+            if not preset_exists(preset_name):
+                await sendMessageFromData(ctx, WikiError.PRESET_NOT_EXISTS_ERROR)
+            else:
+                await start_game(ctx, game_type, preset_name)
 
 
 async def list_presets(ctx):
-    print("list_presets")
+    conn = sql.connect(DB_NAME)
+
+    with conn:
+        preset_list = list(conn.execute("SELECT preset_name, description FROM presets"))
+
+    conn.close()
+    
+    data = {
+        "type": "list_presets",
+        "presets": preset_list
+    }
+
+    await sendMessageFromData(ctx, data)
+
 
 async def list_preset_contents(ctx, preset_name):
-    print(f"list_preset_contents for {preset_name}")
+    conn = sql.connect(DB_NAME)
+
+    with conn:
+        category_string = str(list(conn.execute("SELECT contents FROM presets WHERE preset_name = ?", (preset_name,)))[0][0])
+
+    conn.close()
+
+    data = {
+        "type": "list_preset_contents",
+        "preset_name": preset_name,
+        "categories": list(category_string.split(","))
+    }
+
+    await sendMessageFromData(ctx, data)
 
 async def create_preset(ctx, preset_name, categories):
-    print(f"create_preset with name {preset_name} and categories {categories}")
+    conn = sql.connect(DB_NAME)
+
+    with conn:
+        categories_formatted = ",".join(categories)
+
+        conn.execute("INSERT INTO presets(preset_name, contents) VALUES(?, ?)", (preset_name, categories_formatted))
+
+    conn.close()
+
+    await sendMessageFromData(ctx, True)
+
 
 async def delete_preset(ctx, preset_name):
-    print(f"delete_preset with name {preset_name}")
+    conn = sql.connect(DB_NAME)
+
+    with conn:
+        # TODO grab a success value from this.
+        conn.execute("DELETE FROM presets WHERE preset_name = ?", (preset_name,))
+
+    conn.close()
+
+    await sendMessageFromData(ctx, True)
 
 async def update_preset(ctx, preset_name, categories):
-    print(f"update_preset with name {preset_name} and categories {categories}")
+    conn = sql.connect(DB_NAME)
+
+    with conn:
+        categories_formatted = ",".join(categories)
+        conn.execute("UPDATE presets SET contents = ? WHERE preset_name = ?", (categories_formatted, preset_name))
+
+    conn.close()
+
+    await sendMessageFromData(ctx, True)
 
 async def append_to_preset(ctx, preset_name, categories):
-    print(f"append_to_preset with name {preset_name} and categories {categories}")
+    conn = sql.connect(DB_NAME)
+
+    with conn:
+        existing_contents = list(str(conn.execute("SELECT contents FROM presets WHERE preset_name = ?", (preset_name,))).split(","))
+        categories_formatted = ",".join(existing_contents + categories)
+        conn.execute("UPDATE presets SET contents = ? WHERE preset_name = ?", (categories_formatted, preset_name))
+
+    conn.close()
+
+    await sendMessageFromData(ctx, True)
 
 async def remove_from_preset(ctx, preset_name, categories):
-    print(f"remove_from_preset with name {preset_name} and categories {categories}")
+    conn = sql.connect(DB_NAME)
+
+    with conn:
+        existing_contents = set(str(conn.execute("SELECT contents FROM presets WHERE preset_name = ?", (preset_name,))).split(","))
+        remaining_contents = existing_contents.difference(categories)
+        categories_formatted = ",".join(remaining_contents)
+        conn.execute("UPDATE presets SET contents = ? WHERE preset_name = ?", (categories_formatted, preset_name))
+        
+    conn.close()
+
+    await sendMessageFromData(ctx, True)
 
 async def start_game(ctx, game_type, preset_name):
-    print(f"start_game with game type {game_type} and preset name {preset_name}")
+    # Here's where the rubber meets the road.
+    # Start a session, then issue a GET request to the main bingosync site 
+    # to get the CSRF token.
+
+    session = requests.Session()
+
+    resp = session.get("https://bingosync.com/")
+
+    if resp.status_code != 200:
+        await sendMessageFromData(ctx, (False, f"GET request to bingosync.com gave status code {resp.status_code}"))
+        return
+
+    # The csrf middleware token is embedded in the response HTML, grab it.
+    soup = BeautifulSoup(resp.content, 'html.parser')
+    csrf_token = soup.find("input", {"name": "csrfmiddlewaretoken"}).get("value", "")
+
+    if len(csrf_token) == 0:
+        await sendMessageFromData(ctx, (False, "Unable to find CSRF middleware token in response HTML."))
+        return
+
+    print(f"Found csrfmiddlewaretoken {csrf_token}")
+
+    preset_json = preset_as_json_string(preset_name)
+    print(f"Preset JSON: \"{preset_json}\"")
+
+    post_headers = {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Connection": "keepalive",
+        "Accept": "text/html,application/xhtml+xml,application/xml",
+        "Accept-Encoding": "gzip, deflate, br, zstd",
+        "Accept-Language": "en-US,en;q=0.5",
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0"
+    }
+
+    post_params = {
+        "room_name": "discord bot test",
+        "passphrase": "youllneverguess",
+        "nickname": "wikibot",
+        "game_type": "18",  # custom
+        "variant_type": "172", # randomized
+        "custom_json": preset_json,
+        "lockout_mode": "2",    # TODO: make this configurable
+        "seed": "",  # TODO: make this configurable
+        "hide_card": "on",
+        "csrfmiddlewaretoken": csrf_token
+    }
+
+    resp = session.post("https://bingosync.com/", data=post_params, headers=post_headers, allow_redirects=False)
+
+    if "Location" not in resp.headers: # File Found
+        await sendMessageFromData(ctx, (False, f"Got unexpected status code from POST request {resp.status_code} with no Location header"))
+        print(f"POST request status code: {resp.status_code}")
+        print(f"POST request headers: {resp.headers}")
+        # print(f"POST request content: {resp.content}")
+        soup = BeautifulSoup(resp.content, "html.parser")
+        alert = soup.find("div", {"class": "alert"}).get_text()
+        print(f"Alert block text: {alert}")
+        return
+
+    room_code = resp.headers["Location"]
+
+    await sendMessageFromData(ctx, {"type": "start_game", "room_code": room_code})
+
+# Database utility functions
+
+def preset_exists(preset_name):
+    conn = sql.connect(DB_NAME)
+
+    with conn:
+        rows = list(conn.execute("SELECT * FROM presets WHERE preset_name = ?", (preset_name,)))
+
+    conn.close()
+
+    return len(rows) > 0
+
+def preset_as_json_string(preset_name):
+    conn = sql.connect(DB_NAME)
+
+    with conn:
+        contents = str(list(conn.execute("SELECT contents FROM presets WHERE preset_name = ?", (preset_name,)))[0][0])
+
+    return dumps([{"name": article} for article in contents.split(",")], separators=(',', ':'))
 
 if __name__ == "__main__":
     bot.run(config.token())
