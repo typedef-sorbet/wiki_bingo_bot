@@ -366,9 +366,65 @@ def initialize_test_db():
             presets_data,
         )
 
+        # Create CategoryCache table if not exists
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS CategoryCache("
+            "category_name TEXT PRIMARY KEY, "
+            "pages JSON DEFAULT('[]')"
+            ")"
+        )
+
     conn.close()
 
     print("Database initialized with test data.")
+
+
+def category_cache_exists(category_name: str) -> bool:
+    conn = sql.connect(DB_FILE)
+
+    with conn:
+        cache_row = list(
+            conn.execute(
+                "SELECT category_name FROM CategoryCache WHERE category_name = ?",
+                (category_name,),
+            )
+        )
+
+    conn.close()
+
+    return len(cache_row) > 0
+
+
+def category_cache(category_name: str) -> List[str]:
+    conn = sql.connect(DB_FILE)
+
+    with conn:
+        cache_string = list(
+            conn.execute(
+                "SELECT pages FROM CategoryCache WHERE category_name = ?",
+                (category_name,),
+            )
+        )[0][0]
+
+        # print(f"Cached string: {cache_string}")
+
+        cache_row = loads(cache_string)
+
+    conn.close()
+
+    return cache_row
+
+
+def cache_category(category_name: str, pages: List[str]) -> bool:
+    conn = sql.connect(DB_FILE)
+
+    with conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO CategoryCache(category_name, pages) " "VALUES(?, ?)",
+            (category_name, dumps(pages)),
+        )
+
+    return True
 
 
 def preset_exists(preset_name):
