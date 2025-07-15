@@ -16,6 +16,8 @@ from enum import Enum
 
 from json import dumps
 
+import db
+
 
 class WikiError(Enum):
     NO_ERROR = 0
@@ -34,11 +36,6 @@ headers = {
 DB_NAME = "wiki.db"
 
 
-# Util functions here
-def urlFormat(s):
-    return urllib.parse.quote(s.encode("utf-8"))
-
-
 # Yes, this pattern fucking sucks, I know
 def renderMessage(data):
     # Render the data struct as a text message depending on the contents of the data.
@@ -51,12 +48,15 @@ def renderMessage(data):
         case {
             "type": "list_preset_contents",
             "preset_name": str(preset_name),
-            "categories": list(categories),
+            "contents": list(contents),
         }:
-            if len(categories) == 0:
+            if len(contents) == 0:
                 res = f"A preset with the name '{preset_name}' either doesn't exist, or doesn't have any categories/articles listed."
             else:
-                res = "\n".join(categories)
+                res = "\n".join(
+                    f'{entry["entry_name"]} ({entry["entry_type"]})'
+                    for entry in contents
+                )
 
         case {"type": "start_game", "room_code": room_code}:
             res += f"BingoSync game created: https://bingosync.com{room_code}"
@@ -165,23 +165,10 @@ async def list_presets(ctx):
 
 
 async def list_preset_contents(ctx, preset_name):
-    conn = sql.connect(DB_NAME)
-
-    with conn:
-        category_string = str(
-            list(
-                conn.execute(
-                    "SELECT contents FROM presets WHERE preset_name = ?", (preset_name,)
-                )
-            )[0][0]
-        )
-
-    conn.close()
-
     data = {
         "type": "list_preset_contents",
         "preset_name": preset_name,
-        "categories": list(category_string.split(",")),
+        "contents": db.preset_contents(preset_name),
     }
 
     await sendMessageFromData(ctx, data)
@@ -360,19 +347,6 @@ async def start_game(ctx, game_type, preset_name):
 
 
 # Database utility functions
-
-
-def preset_exists(preset_name):
-    conn = sql.connect(DB_NAME)
-
-    with conn:
-        rows = list(
-            conn.execute("SELECT * FROM presets WHERE preset_name = ?", (preset_name,))
-        )
-
-    conn.close()
-
-    return len(rows) > 0
 
 
 def preset_as_json_string(preset_name):
