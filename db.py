@@ -235,15 +235,18 @@ def remove_from_preset(preset_name: str, entries: List[str]) -> bool:
     with conn:
         existing_entries = set(
             loads(
-                conn.execute(
-                    "SELECT entries FROM Presets WHERE preset_name = ?", (preset_name,)
-                )[0]
+                list(
+                    conn.execute(
+                        "SELECT entries FROM Presets WHERE preset_name = ?",
+                        (preset_name,),
+                    )
+                )[0][0]
             )
         )
 
     merged_entries = existing_entries.difference(set(entries))
 
-    entries_json = dumps(merged_entries)
+    entries_json = dumps(list(merged_entries))
 
     with conn:
         conn.execute(
