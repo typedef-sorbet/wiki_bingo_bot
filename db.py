@@ -54,7 +54,7 @@ def create_entries_from_names(name_list: List[str]) -> Tuple[bool, str]:
     ]
 
     invalid_names = [
-        ent["entry_name"] for ent in entry_list if ent["entry_type"] == EntryType.ERROR
+        ent["entry_name"] for ent in entry_list if ent["entry_type"] == "err"
     ]
 
     if len(invalid_names) > 0:

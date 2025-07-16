@@ -139,6 +139,9 @@ async def _wiki(ctx, *args):
         case ["start", game_type, preset_name]:
             await start_game(ctx, game_type, preset_name)
 
+        case ["start", preset_name]:
+            await start_game(ctx, "TODO", preset_name)
+
 
 async def list_presets(ctx):
     data = {"type": "list_presets", "presets": db.presets()}
