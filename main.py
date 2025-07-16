@@ -79,6 +79,9 @@ def renderMessage(data):
         case WikiError.PRESET_NOT_EXISTS_ERROR:
             res = "Given preset does not exist. Use `!wiki presets` to see a list of registered presets."
 
+        case str(msg):
+            res = msg
+
         case _:
             print(f"Unknown data type: categories {data['Categories']}")
             print(data)
@@ -141,6 +144,38 @@ async def _wiki(ctx, *args):
 
         case ["start", preset_name]:
             await start_game(ctx, "TODO", preset_name)
+
+        # General
+        case ["help"]:
+            await sendMessageFromData(
+                ctx,
+                "\n".join([
+                    "**Preset Management**",
+                    "",
+                    "`!wiki presets` - List all preset pools of articles/categories.",
+                    "`!wiki preset PRESET_NAME` - List all articles/categories in the named preset pool.",
+                    "`!wiki preset create PRESET_NAME (CATEGORY|ARTICLE)...` - Create a new preset pool with the listed categories/articles. Category/article names containing spaces should be wrapped in double-quotes _(e.g. \"Médecins Sans Frontières\")._",
+                    "`!wiki preset append PRESET_NAME (CATEGORY|ARTICLE)...` - Append the listed categories/articles to the named preset.",
+                    "`!wiki preset update PRESET_NAME (CATEGORY|ARTICLE)...` - Replace the category/article list of the named preset with the given list.",
+                    "`!wiki preset remove PRESET_NAME (CATEGORY|ARTICLE)...` - Remove the listed categories/articles from the named preset.",
+                    "`!wiki preset delete PRESET_NAME` - Delete the named preset.",
+                    "",
+                    "**Game Management**",
+                    "",
+                    "`!wiki start PRESET_NAME` - Start a new bingo board using the named preset. Defaults to Lockout Bingo.",
+                    "",
+                    "**General**",
+                    "",
+                    "`!wiki help` - Show this help message.",
+                    "`!wiki github` - Returns a link to this bot's GitHub repo."
+                ])
+            )
+
+        case ["github"]:
+            await sendMessageFromData(ctx, "https://github.com/typedef-sorbet/wiki_bingo_bot")
+
+        case _:
+            await sendMessageFromData(ctx, "Unknown command. Type `!wiki help` for a list of commands.")
 
 
 async def list_presets(ctx):
