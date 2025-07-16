@@ -9,13 +9,17 @@ from sys import _getframe as frame
 from typing import List, Dict, Tuple
 
 import urllib
+import wiki
 
 DB_FILE = "wiki.db"
+
+conn = sql.connect(DB_FILE)
 
 
 class EntryType(Enum):
     CATEGORY = "category"
     ARTICLE = "article"
+    ERROR = "err"
 
 
 # Util functions here
@@ -26,12 +30,7 @@ def urlFormat(s):
 def create_entry(entry_name: str, entry_type: EntryType) -> bool:
     funcname = frame().f_code.co_name
 
-    try:
-        conn = sql.connect(DB_FILE)
-    except:
-        print(f"{funcname}: Unable to open connection to database file {DB_FILE}")
-        return False
-
+    global conn
     res = True
 
     with conn:
@@ -44,10 +43,29 @@ def create_entry(entry_name: str, entry_type: EntryType) -> bool:
         except:
             print(f"{funcname}: Unable to insert into PresetEntries")
             res = False
-        finally:
-            conn.close()
 
     return res
+
+
+def create_entries_from_names(name_list: List[str]) -> Tuple[bool, str]:
+    # Ensure that all names are either articles or categories.
+    entry_list = [
+        {"entry_name": name, "entry_type": wiki.entry_type(name)} for name in name_list
+    ]
+
+    invalid_names = [
+        ent["entry_name"] for ent in entry_list if ent["entry_type"] == EntryType.ERROR
+    ]
+
+    if len(invalid_names) > 0:
+        return (
+            False,
+            f"The following entries were not found as articles/categories: {', '.join(invalid_names)}",
+        )
+
+    create_entries(entry_list)
+
+    return (True, "")
 
 
 def create_entries(
@@ -73,21 +91,19 @@ def create_preset(preset_name: str, entries: List[str]) -> Tuple[bool, str]:
         print(f"{funcname}: preset {preset_name} already exists")
         return (False, "A preset by the same name already exists.")
 
-    conn = sql.connect(DB_FILE)
+    global conn
 
     with conn:
-        all_valid_entries = set(conn.execute("SELECT entry_name FROM PresetEntries"))
-
-    invalid_entries = [entry for entry in entries if entry not in all_valid_entries]
-
-    if len(invalid_entries):
-        print(
-            f"{funcname}: The following entries were not found: {', '.join(invalid_entries)}"
+        all_valid_entries = set(
+            list(conn.execute("SELECT entry_name FROM PresetEntries"))[0]
         )
-        return (
-            False,
-            f"The following entries were not found: {', '.join(invalid_entries)}",
-        )
+
+    not_found_entries = [entry for entry in entries if entry not in all_valid_entries]
+
+    if len(not_found_entries) > 0:
+        (success, reason) = create_entries_from_names(not_found_entries)
+        if not success:
+            return (success, reason)
 
     entries_json = dumps(entries)
 
@@ -96,8 +112,6 @@ def create_preset(preset_name: str, entries: List[str]) -> Tuple[bool, str]:
             "INSERT OR IGNORE INTO Presets(preset_name, entries) VALUES(?, ?)",
             (preset_name, entries_json),
         )
-
-    conn.close()
 
     return (True, "")
 
@@ -113,21 +127,19 @@ def update_preset(preset_name: str, entries: List[str]) -> Tuple[bool, str]:
         print(f"{funcname}: preset {preset_name} doesn't exist")
         return (False, f'No preset found with the name "{preset_name}".')
 
-    conn = sql.connect(DB_FILE)
+    global conn
 
     with conn:
-        all_valid_entries = set(conn.execute("SELECT entry_name FROM PresetEntries"))
-
-    invalid_entries = [entry for entry in entries if entry not in all_valid_entries]
-
-    if len(invalid_entries):
-        print(
-            f"{funcname}: The following entries were not found: {', '.join(invalid_entries)}"
+        all_valid_entries = set(
+            list(conn.execute("SELECT entry_name FROM PresetEntries"))[0]
         )
-        return (
-            False,
-            f"The following entries were not found: {', '.join(invalid_entries)}",
-        )
+
+    not_found_entries = [entry for entry in entries if entry not in all_valid_entries]
+
+    if len(not_found_entries) > 0:
+        (success, reason) = create_entries_from_names(not_found_entries)
+        if not success:
+            return (success, reason)
 
     entries_json = dumps(entries)
 
@@ -136,8 +148,6 @@ def update_preset(preset_name: str, entries: List[str]) -> Tuple[bool, str]:
             "UPDATE Presets SET entries = ? WHERE preset_name = ?",
             (entries_json, preset_name),
         )
-
-    conn.close()
 
     return (True, "")
 
@@ -153,42 +163,41 @@ def append_to_preset(preset_name: str, entries: List[str]) -> Tuple[bool, str]:
         print(f"{funcname}: preset {preset_name} doesn't exist")
         return (False, f'No preset found with the name "{preset_name}".')
 
-    conn = sql.connect(DB_FILE)
+    global conn
 
     with conn:
-        all_valid_entries = set(conn.execute("SELECT entry_name FROM PresetEntries")[0])
-
-    invalid_entries = [entry for entry in entries if entry not in all_valid_entries]
-
-    if len(invalid_entries):
-        print(
-            f"{funcname}: The following entries were not found: {', '.join(invalid_entries)}"
+        all_valid_entries = set(
+            list(conn.execute("SELECT entry_name FROM PresetEntries"))[0]
         )
-        return (
-            False,
-            f"The following entries were not found: {', '.join(invalid_entries)}",
-        )
+
+    not_found_entries = [entry for entry in entries if entry not in all_valid_entries]
+
+    if len(not_found_entries) > 0:
+        (success, reason) = create_entries_from_names(not_found_entries)
+        if not success:
+            return (success, reason)
 
     with conn:
         existing_entries = set(
             loads(
-                conn.execute(
-                    "SELECT entries FROM Presets WHERE preset_name = ?", (preset_name,)
-                )[0]
+                list(
+                    conn.execute(
+                        "SELECT entries FROM Presets WHERE preset_name = ?",
+                        (preset_name,),
+                    )
+                )[0][0]
             )
         )
 
     merged_entries = existing_entries.union(set(entries))
 
-    entries_json = dumps(merged_entries)
+    entries_json = dumps(list(merged_entries))
 
     with conn:
         conn.execute(
             "UPDATE Presets SET entries = ? WHERE preset_name = ?",
             (entries_json, preset_name),
         )
-
-    conn.close()
 
     return (True, "")
 
@@ -200,16 +209,12 @@ def delete_preset(preset_name: str) -> Tuple[bool, str]:
         print(f"{funcname}: preset {preset_name} doesn't exist")
         return (False, f'No preset found with the name "{preset_name}".')
 
-    conn = sql.connect(DB_FILE)
+    global conn
 
     with conn:
-        all_valid_entries = set(
-            conn.execute(
-                "DELETE FROM Presets WHERE preset_name = ? LIMIT 1", (preset_name,)
-            )
+        conn.execute(
+            "DELETE FROM Presets WHERE preset_name = ? LIMIT 1", (preset_name,)
         )
-
-    conn.close()
 
     return (True, "")
 
@@ -225,7 +230,7 @@ def remove_from_preset(preset_name: str, entries: List[str]) -> bool:
         print(f"{funcname}: preset {preset_name} doesn't exist")
         return (False, f'No preset found with the name "{preset_name}".')
 
-    conn = sql.connect(DB_FILE)
+    global conn
 
     with conn:
         existing_entries = set(
@@ -246,13 +251,11 @@ def remove_from_preset(preset_name: str, entries: List[str]) -> bool:
             (entries_json, preset_name),
         )
 
-    conn.close()
-
     return (True, "")
 
 
 def preset_contents(preset_name: str) -> List[Dict[str, str]]:
-    conn = sql.connect(DB_FILE)
+    global conn
 
     entries_joined = []
 
@@ -274,13 +277,11 @@ def preset_contents(preset_name: str) -> List[Dict[str, str]]:
             )[0][0]
             entries_joined.append({"entry_name": entry_name, "entry_type": entry_type})
 
-    conn.close()
-
     return entries_joined
 
 
 def presets() -> List[Tuple[str, str]]:
-    conn = sql.connect(DB_FILE)
+    global conn
 
     with conn:
         return list(conn.execute("SELECT preset_name, description FROM Presets"))
@@ -294,7 +295,7 @@ def initialize_test_db():
 
     del db_path
 
-    conn = sql.connect(DB_FILE)
+    global conn
 
     with conn:
         # Create the Presets table if it doesn't exist already
@@ -374,13 +375,11 @@ def initialize_test_db():
             ")"
         )
 
-    conn.close()
-
     print("Database initialized with test data.")
 
 
 def category_cache_exists(category_name: str) -> bool:
-    conn = sql.connect(DB_FILE)
+    global conn
 
     with conn:
         cache_row = list(
@@ -390,13 +389,11 @@ def category_cache_exists(category_name: str) -> bool:
             )
         )
 
-    conn.close()
-
     return len(cache_row) > 0
 
 
 def category_cache(category_name: str) -> List[str]:
-    conn = sql.connect(DB_FILE)
+    global conn
 
     with conn:
         cache_string = list(
@@ -410,13 +407,11 @@ def category_cache(category_name: str) -> List[str]:
 
         cache_row = loads(cache_string)
 
-    conn.close()
-
     return cache_row
 
 
 def cache_category(category_name: str, pages: List[str]) -> bool:
-    conn = sql.connect(DB_FILE)
+    global conn
 
     with conn:
         conn.execute(
@@ -428,13 +423,11 @@ def cache_category(category_name: str, pages: List[str]) -> bool:
 
 
 def preset_exists(preset_name):
-    conn = sql.connect(DB_FILE)
+    global conn
 
     with conn:
         rows = list(
             conn.execute("SELECT * FROM presets WHERE preset_name = ?", (preset_name,))
         )
-
-    conn.close()
 
     return len(rows) > 0
